@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -31,12 +32,16 @@ class TestMemoryBM25Retriever:
         assert retriever.filters is None
         assert retriever.top_k == 10
         assert retriever.scale_score is False
+        assert retriever.include_confidence is False
 
     def test_init_with_parameters(self, in_memory_doc_store):
-        retriever = InMemoryBM25Retriever(in_memory_doc_store, filters={"name": "test.txt"}, top_k=5, scale_score=True)
+        retriever = InMemoryBM25Retriever(
+            in_memory_doc_store, filters={"name": "test.txt"}, top_k=5, scale_score=True, include_confidence=True
+        )
         assert retriever.filters == {"name": "test.txt"}
         assert retriever.top_k == 5
         assert retriever.scale_score
+        assert retriever.include_confidence is True
 
     def test_init_with_invalid_top_k_parameter(self, in_memory_doc_store):
         with pytest.raises(ValueError):
@@ -56,6 +61,7 @@ class TestMemoryBM25Retriever:
                 "filters": None,
                 "top_k": 10,
                 "scale_score": False,
+                "include_confidence": False,
                 "filter_policy": "replace",
             },
         }
@@ -78,6 +84,7 @@ class TestMemoryBM25Retriever:
                 "filters": {"name": "test.txt"},
                 "top_k": 5,
                 "scale_score": True,
+                "include_confidence": False,
                 "filter_policy": "replace",
             },
         }
@@ -99,6 +106,7 @@ class TestMemoryBM25Retriever:
         assert component.filters == {"name": "test.txt"}
         assert component.top_k == 5
         assert component.scale_score is False
+        assert component.include_confidence is False
         assert component.filter_policy == FilterPolicy.REPLACE
 
     def test_from_dict_without_docstore(self):
@@ -139,6 +147,38 @@ class TestMemoryBM25Retriever:
         SomeOtherDocumentStore = document_store_class("SomeOtherDocumentStore")
         with pytest.raises(TypeError, match="document_store must be an instance of InMemoryDocumentStore"):
             InMemoryBM25Retriever(SomeOtherDocumentStore())
+
+    def test_run_with_include_confidence_adds_metadata_when_scaled(self, in_memory_doc_store, mock_docs):
+        in_memory_doc_store.write_documents(mock_docs)
+
+        retriever = InMemoryBM25Retriever(in_memory_doc_store, top_k=3, scale_score=True, include_confidence=True)
+        result = retriever.run(query="PHP")
+
+        first_document = result["documents"][0]
+        assert first_document.score is not None
+        assert first_document.meta["retrieval_confidence"] == first_document.score
+        assert first_document.meta["retrieval_confidence_source"] == "bm25_scaled_score"
+
+    def test_run_with_include_confidence_does_not_add_metadata_when_not_scaled(self, in_memory_doc_store, mock_docs):
+        in_memory_doc_store.write_documents(mock_docs)
+
+        retriever = InMemoryBM25Retriever(in_memory_doc_store, top_k=3, include_confidence=True)
+        result = retriever.run(query="PHP")
+
+        first_document = result["documents"][0]
+        assert "retrieval_confidence" not in first_document.meta
+        assert "retrieval_confidence_source" not in first_document.meta
+
+    def test_run_async_with_include_confidence_matches_sync_behavior(self, in_memory_doc_store, mock_docs):
+        in_memory_doc_store.write_documents(mock_docs)
+
+        retriever = InMemoryBM25Retriever(in_memory_doc_store, top_k=3, scale_score=True, include_confidence=True)
+        result = asyncio.run(retriever.run_async(query="PHP"))
+
+        first_document = result["documents"][0]
+        assert first_document.score is not None
+        assert first_document.meta["retrieval_confidence"] == first_document.score
+        assert first_document.meta["retrieval_confidence_source"] == "bm25_scaled_score"
 
     @pytest.mark.integration
     @pytest.mark.parametrize(

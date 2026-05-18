@@ -44,6 +44,7 @@ class InMemoryBM25Retriever:
         filters: dict[str, Any] | None = None,
         top_k: int = 10,
         scale_score: bool = False,
+        include_confidence: bool = False,
         filter_policy: FilterPolicy = FilterPolicy.REPLACE,
     ) -> None:
         """
@@ -58,6 +59,10 @@ class InMemoryBM25Retriever:
         :param scale_score:
             When `True`, scales the score of retrieved documents to a range of 0 to 1, where 1 means extremely relevant.
             When `False`, uses raw similarity scores.
+        :param include_confidence:
+            When `True`, adds optional retrieval confidence metadata to returned documents when `scale_score` is also
+            `True`. The metadata is exposed via `Document.meta["retrieval_confidence"]` and
+            `Document.meta["retrieval_confidence_source"]`.
         :param filter_policy: The filter policy to apply during retrieval.
         Filter policy determines how filters are applied when retrieving documents. You can choose:
         - `REPLACE` (default): Overrides the initialization filters with the filters specified at runtime.
@@ -78,6 +83,7 @@ class InMemoryBM25Retriever:
         self.filters = filters
         self.top_k = top_k
         self.scale_score = scale_score
+        self.include_confidence = include_confidence
         self.filter_policy = filter_policy
 
     def _get_telemetry_data(self) -> dict[str, Any]:
@@ -99,6 +105,7 @@ class InMemoryBM25Retriever:
             filters=self.filters,
             top_k=self.top_k,
             scale_score=self.scale_score,
+            include_confidence=self.include_confidence,
             filter_policy=self.filter_policy.value,
         )
 
@@ -124,6 +131,7 @@ class InMemoryBM25Retriever:
         filters: dict[str, Any] | None = None,
         top_k: int | None = None,
         scale_score: bool | None = None,
+        include_confidence: bool | None = None,
     ) -> dict[str, list[Document]]:
         """
         Run the InMemoryBM25Retriever on the given input data.
@@ -137,6 +145,9 @@ class InMemoryBM25Retriever:
         :param scale_score:
             When `True`, scales the score of retrieved documents to a range of 0 to 1, where 1 means extremely relevant.
             When `False`, uses raw similarity scores.
+        :param include_confidence:
+            When `True`, adds optional retrieval confidence metadata to returned documents when `scale_score` is also
+            `True`. When `False`, no retrieval confidence metadata is added.
         :returns:
             The retrieved documents.
 
@@ -151,8 +162,12 @@ class InMemoryBM25Retriever:
             top_k = self.top_k
         if scale_score is None:
             scale_score = self.scale_score
+        if include_confidence is None:
+            include_confidence = self.include_confidence
 
         docs = self.document_store.bm25_retrieval(query=query, filters=filters, top_k=top_k, scale_score=scale_score)
+        if include_confidence and scale_score:
+            self._add_confidence_metadata(docs)
         return {"documents": docs}
 
     @component.output_types(documents=list[Document])
@@ -162,6 +177,7 @@ class InMemoryBM25Retriever:
         filters: dict[str, Any] | None = None,
         top_k: int | None = None,
         scale_score: bool | None = None,
+        include_confidence: bool | None = None,
     ) -> dict[str, list[Document]]:
         """
         Run the InMemoryBM25Retriever on the given input data.
@@ -175,6 +191,9 @@ class InMemoryBM25Retriever:
         :param scale_score:
             When `True`, scales the score of retrieved documents to a range of 0 to 1, where 1 means extremely relevant.
             When `False`, uses raw similarity scores.
+        :param include_confidence:
+            When `True`, adds optional retrieval confidence metadata to returned documents when `scale_score` is also
+            `True`. When `False`, no retrieval confidence metadata is added.
         :returns:
             The retrieved documents.
 
@@ -189,8 +208,20 @@ class InMemoryBM25Retriever:
             top_k = self.top_k
         if scale_score is None:
             scale_score = self.scale_score
+        if include_confidence is None:
+            include_confidence = self.include_confidence
 
         docs = await self.document_store.bm25_retrieval_async(
             query=query, filters=filters, top_k=top_k, scale_score=scale_score
         )
+        if include_confidence and scale_score:
+            self._add_confidence_metadata(docs)
         return {"documents": docs}
+
+    @staticmethod
+    def _add_confidence_metadata(documents: list[Document]) -> None:
+        for document in documents:
+            if document.score is None:
+                continue
+            document.meta["retrieval_confidence"] = document.score
+            document.meta["retrieval_confidence_source"] = "bm25_scaled_score"

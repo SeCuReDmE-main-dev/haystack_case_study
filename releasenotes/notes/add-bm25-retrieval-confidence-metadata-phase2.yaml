@@ -1,0 +1,8 @@
+---
+enhancements:
+  - |
+    Adds an optional `include_confidence` parameter to `InMemoryBM25Retriever`.
+    When enabled together with `scale_score=True`, returned documents now expose
+    BM25 retrieval confidence metadata via `Document.meta["retrieval_confidence"]`
+    and `Document.meta["retrieval_confidence_source"]` without changing
+    `Document.score` semantics.

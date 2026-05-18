@@ -75,5 +75,5 @@ class AskOncePolicy(ConfirmationPolicy):
         :param tool_params: The parameters that were passed to the tool.
         :param confirmation_result: The result from the confirmation UI.
         """
-        if confirmation_result.action == "confirm":
+        if confirmation_result.resolved_status() == "approved":
             self._asked_tools[tool_name] = tool_params

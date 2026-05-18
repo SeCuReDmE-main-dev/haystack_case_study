@@ -1,0 +1,8 @@
+---
+enhancements:
+  - |
+    Adds an explicit `status` field to `ToolExecutionDecision` with the values
+    `approved`, `modified`, and `rejected`, while preserving the legacy
+    `execute` boolean for backward compatibility. `BlockingConfirmationStrategy`
+    now normalizes built-in confirmation UI actions into these explicit HITL
+    decision statuses.

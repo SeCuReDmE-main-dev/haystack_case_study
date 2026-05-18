@@ -107,16 +107,21 @@ class BlockingConfirmationStrategy:
         )
 
         # Process the confirmation result
+        decision_status = confirmation_ui_result.resolved_status()
         final_args = {}
-        if confirmation_ui_result.action == "reject":
+        if decision_status == "rejected":
             explanation_text = self.reject_template.format(tool_name=tool_name)
             if confirmation_ui_result.feedback:
                 explanation_text += " "
                 explanation_text += self.user_feedback_template.format(feedback=confirmation_ui_result.feedback)
             return ToolExecutionDecision(
-                tool_name=tool_name, execute=False, tool_call_id=tool_call_id, feedback=explanation_text
+                tool_name=tool_name,
+                execute=False,
+                tool_call_id=tool_call_id,
+                feedback=explanation_text,
+                status="rejected",
             )
-        if confirmation_ui_result.action == "modify" and confirmation_ui_result.new_tool_params:
+        if decision_status == "modified" and confirmation_ui_result.new_tool_params:
             # Update the tool call params with the new params
             final_args.update(confirmation_ui_result.new_tool_params)
             explanation_text = self.modify_template.format(tool_name=tool_name, final_tool_params=final_args)
@@ -129,10 +134,15 @@ class BlockingConfirmationStrategy:
                 execute=True,
                 feedback=explanation_text,
                 final_tool_params=final_args,
+                status="modified",
             )
         # action == "confirm"
         return ToolExecutionDecision(
-            tool_name=tool_name, execute=True, tool_call_id=tool_call_id, final_tool_params=tool_params
+            tool_name=tool_name,
+            execute=True,
+            tool_call_id=tool_call_id,
+            final_tool_params=tool_params,
+            status="approved",
         )
 
     async def run_async(
@@ -542,7 +552,7 @@ def _apply_tool_execution_decisions(
                 # This shouldn't happen, if so something went wrong in _run_confirmation_strategies
                 continue
 
-            if not ted.execute:
+            if ted.resolved_status() == "rejected":
                 # rejected tool call
                 tool_result_text = ted.feedback or REJECTION_FEEDBACK_TEMPLATE.format(tool_name=tc.tool_name)
                 rejection_messages.extend(
@@ -555,7 +565,7 @@ def _apply_tool_execution_decisions(
 
             # Covers confirm and modify cases
             final_args = ted.final_tool_params or {}
-            if tc.arguments != final_args:
+            if ted.resolved_status() == "modified" or tc.arguments != final_args:
                 # In the modify case we add a user message explaining the modification otherwise the LLM won't know
                 # why the tool parameters changed and will likely just try and call the tool again with the
                 # original parameters.
